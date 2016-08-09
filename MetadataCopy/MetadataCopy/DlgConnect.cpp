@@ -66,6 +66,8 @@ END_MESSAGE_MAP()
 void CDlgConnect::OnBnClickedOk()
 {
 	// TODO: 在此添加控件通知处理程序代码
+	UpdateData(TRUE);
+
 	m_connect.strDataSource = m_strDataSource;
 	m_connect.strDatabase = m_strDatabase;
 	m_connect.enumType = CDDT_SQLSERVER;
@@ -73,6 +75,8 @@ void CDlgConnect::OnBnClickedOk()
 	m_connect.strPWD = m_strPassword;
 
 	CDYDatabaseEx db;
+	db.SetReportErr(TRUE);
+	db.SetWriteLog(TRUE);
 
 	if (!db.Open(m_connect)) {
 		return;
@@ -87,6 +91,8 @@ void CDlgConnect::OnBnClickedOk()
 	m_connect2.strPWD = m_strPassword2;
 
 	CDYDatabaseEx db1;
+	db1.SetReportErr(TRUE);
+	db1.SetWriteLog(TRUE);
 	if (!db1.Open(m_connect2)) {
 		return;
 	}

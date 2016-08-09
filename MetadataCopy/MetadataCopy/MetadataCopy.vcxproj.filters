@@ -81,6 +81,9 @@
     <ClInclude Include="ConnectFuc.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="FileShare.h">
+      <Filter>include</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MetadataCopy.cpp">
@@ -129,6 +132,9 @@
       <Filter>include</Filter>
     </ClCompile>
     <ClCompile Include="ConnectFuc.cpp">
+      <Filter>include</Filter>
+    </ClCompile>
+    <ClCompile Include="FileShare.cpp">
       <Filter>include</Filter>
     </ClCompile>
   </ItemGroup>

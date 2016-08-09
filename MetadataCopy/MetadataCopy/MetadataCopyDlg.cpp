@@ -10,29 +10,13 @@
 #include "DlgConnect.h"
 
 #include "OutPut.h"
+#include "register.h"
+#include "FileShare.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-
-ULONGLONG g_GetFileSize(LPCTSTR lpszFileName)
-{
-	CFile file;
-	HANDLE hFile = ::CreateFile( lpszFileName, 0, 0, NULL, 
-		OPEN_EXISTING, 0, NULL );
-	if(hFile == INVALID_HANDLE_VALUE)
-		return 0;
-	ULONGLONG ullFileSize;
-	DWORD dwFileSizeLow, dwFileSizeHigh;
-	dwFileSizeLow = ::GetFileSize(hFile, &dwFileSizeHigh);
-	ullFileSize = dwFileSizeHigh;
-	ullFileSize = ullFileSize << 32;
-	ullFileSize += dwFileSizeLow;
-
-	CloseHandle(hFile);
-	return ullFileSize;
-}
 
 // CMetadataCopyDlg 对话框
 
@@ -58,6 +42,7 @@ void CMetadataCopyDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_USERBIT, m_strUserbit);
 	DDX_Control(pDX, IDC_ITEMS, m_lstItems);
 	DDX_Text(pDX, IDC_ITEM_COUNT, m_strItemCount);
+	DDX_Control(pDX, IDC_TARGET_PATH, m_cbTargetPath);
 }
 
 BEGIN_MESSAGE_MAP(CMetadataCopyDlg, CDialogEx)
@@ -133,8 +118,10 @@ BOOL CMetadataCopyDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
 	g_output.SetLogFile(_T("metadatacopy.log"));
+	g_bSQLTrace = TRUE;
 	GetDlgItem(IDC_SEARCH)->EnableWindow(FALSE);
 	GetDlgItem(IDC_COPY)->EnableWindow(FALSE);
+	GetDlgItem(IDC_TARGET_PATH)->EnableWindow(FALSE);
 	GetDlgItem(IDC_STATUS)->SetWindowText(_T(""));
 
 	m_lstLog.InsertColumn(0, _T("Time"), LVCFMT_LEFT, 80, TRUE);
@@ -180,6 +167,7 @@ void CMetadataCopyDlg::OnBnClickedConnect()
 
 	ReadAllStoragePath();
 	GetDlgItem(IDC_SEARCH)->EnableWindow(TRUE);
+	GetDlgItem(IDC_TARGET_PATH)->EnableWindow(TRUE);
 	WriteLog(_T("Connect DB successfully"));
 }
 
@@ -187,6 +175,9 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 {
 	CString strLog;
 	UpdateData(TRUE);
+
+	int nCurSel = m_cbTargetPath.GetCurSel();
+	CString strUNCPath = m_aryStoragePaths[nCurSel].strUNCPath;
 	m_strUserbit.Trim();
 	if (m_strUserbit.IsEmpty()) {
 		AfxMessageBox(_T("Please input userbit!"));
@@ -217,7 +208,7 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 		OBJECTITEM &objectItem = m_aryObjectItems[i];
 		if (!ReadObjectFromDB(objectItem.strUserbit, objectItem))
 			return;
-		if (!FindFileInTarget(objectItem))
+		if (!FindFileInTarget(objectItem, strUNCPath))
 			return;
 		m_lstItems.InsertItem(i, objectItem.strUserbit);
 		CString strName = objectItem.strSourceName.IsEmpty() ? objectItem.strTargetName : objectItem.strSourceName;
@@ -228,9 +219,15 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 		m_lstItems.SetItemText(i, 3, strText);
 		strText = objectItem.bFindInTarget ? _T("Y") : _T("NULL");
 		m_lstItems.SetItemText(i, 4, strText);
+		if (!CheckObjectExistInTarget(objectItem))
+			return;
 
 		if (!objectItem.bFindInSource) {
 			strLog.Format(_T("Can not find [%s] from source db"), objectItem.strUserbit);
+			WriteLog(strLog);
+		}
+		if (!objectItem.bAlreadyExist) {
+			strLog.Format(_T("[%s] already copied. Can not copy it again"), objectItem.strUserbit);
 			WriteLog(strLog);
 		}
 		if (!objectItem.bFindInTarget) {
@@ -242,6 +239,7 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 			bEnableCopy = TRUE;
 		if (!objectItem.bFileInTarget)
 			objectItem.strTargetObjectID = objectItem.strSourceObjectID;
+
 
 		//if (m_bTestMode) {
 		//	if (objectItem.bFindInSource && !objectItem.bFindInTarget)
@@ -262,14 +260,37 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 
 void CMetadataCopyDlg::OnBnClickedCopy()
 {
+	int nCurSel = m_cbTargetPath.GetCurSel();
+	if (nCurSel == -1) {
+		AfxMessageBox(_T("Please select the target path where the high res file are!"));
+		return;
+	}
+	STORAGEPATH &path = m_aryStoragePaths[nCurSel];
+
+	CRegister reg;
+	CString strKey = _T("Software\\Wow6432Node\\Dayang\\IMAM");
+	if (!reg.OpenKey(HKEY_LOCAL_MACHINE, strKey)) {
+		CString strErrMsg;
+		strErrMsg.Format(_T("OpenKey[%s] error!"), strKey);
+		g_output.OutPut(TRUE, strErrMsg);
+		AfxMessageBox(strErrMsg);
+		return;
+	}
+	reg.SetString(_T("DefaultPathID"), path.strPathID);
+
 	int nCopyCount = 0;
 	for (int i = 0; i < m_aryObjectItems.GetSize(); i ++) {
 		OBJECTITEM &objectItem = m_aryObjectItems[i];
+		if (objectItem.bAlreadyExist){
+			m_lstItems.SetItemText(i, 5, _T("Skipped"));
+			continue;
+		}
+			
 		if (!objectItem.bFindInSource || !objectItem.bFileInTarget) {
 			m_lstItems.SetItemText(i, 5, _T("Skipped"));
 			continue;
 		}
-		if (!CopyBetweenDB(objectItem)) {
+		if (!CopyBetweenDB(objectItem, path)) {
 			AfxMessageBox(_T("Copy failed!"));
 			break;
 		}
@@ -285,35 +306,8 @@ void CMetadataCopyDlg::OnBnClickedCopy()
 	AfxMessageBox(strMsg);
 }
 
-BOOL CMetadataCopyDlg::CopyBetweenDB(OBJECTITEM objectItem)
+BOOL CMetadataCopyDlg::CopyBetweenDB(OBJECTITEM &objectItem, STORAGEPATH &path)
 {
-	//if (m_bTestMode) {//测试模式
-	//	if (!CopyBetweenTable(_T("COM_BASICINFO"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
-	//		return FALSE;
-
-	//	if (!CopyBetweenTable(_T("COB_PROGRAM"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
-	//		return FALSE;
-
-	//	CString strSelectSourceSQL, strSelectTargetSQL, strDeleteTargetSQL;
-	//	//Copy data from spm_file
-	//	strSelectSourceSQL.Format(_T("select * from spm_file where filetype not in (2,4) and objectid='%s'"), strSourceObjectID);
-	//	strDeleteTargetSQL.Format(_T("delete from spm_file where filetype not in(2,4) and objectid='%s'"), strTargetObjectID);
-	//	strSelectTargetSQL.Format(_T("select * from spm_file where 1=2"));//空集
-
-	//	if (!CopyBetweenTableBySQL(strSelectSourceSQL, strSelectTargetSQL, strDeleteTargetSQL, strSourceObjectID, strTargetObjectID))
-	//		return FALSE;
-	//} else {
-	//	if (!CopyBetweenTable(_T("COB_PROGRAM"), _T("OBJECTID"), strSourceObjectID, strTargetObjectID))
-	//		return FALSE;
-	//	CString strSelectSourceSQL, strSelectTargetSQL, strDeleteTargetSQL;
-	//	//Copy data from spm_file
-	//	strSelectSourceSQL.Format(_T("select * from spm_file where filetype in (2,4) and objectid='%s'"), strSourceObjectID);
-	//	strDeleteTargetSQL.Format(_T("delete from spm_file where filetype in(2,4) and objectid='%s'"), strTargetObjectID);
-	//	strSelectTargetSQL.Format(_T("select * from spm_file where 1=2"));//空集
-
-	//	if (!CopyBetweenTableBySQL(strSelectSourceSQL, strSelectTargetSQL, strDeleteTargetSQL, strSourceObjectID, strTargetObjectID))
-	//		return FALSE;
-	//}
 	if (!CopyBetweenTable(_T("COM_BASICINFO"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
 		return FALSE;
 	if (!CopyBetweenTable(_T("COB_PROGRAM"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
@@ -323,6 +317,15 @@ BOOL CMetadataCopyDlg::CopyBetweenDB(OBJECTITEM objectItem)
 	if (!CopyBetweenTable(_T("COM_KEYFRAME"), _T("CLIPID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
 		return FALSE;
 	if (!CopyBetweenTable(_T("COM_SPECIALSEQUENCE"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
+		return FALSE;
+
+	CString strSQL;
+	strSQL.Format(_T("UPDATE SPM_FILE SET STATUS=%d WHERE OBJECTID='%s'"), 2, objectItem.strTargetObjectID);
+	if (!ExecuteSQLInTarget(strSQL))
+		return FALSE;
+	strSQL.Format(_T("UPDATE SPM_FILE SET PATHID='%s',SAID='%s' WHERE OBJECTID='%s' AND FILETYPE IN(0,3,5)"),
+		path.strPathID, path.strSAID, objectItem.strTargetObjectID);
+	if (!ExecuteSQLInTarget(strSQL))
 		return FALSE;
 	return TRUE;
 }
@@ -482,6 +485,13 @@ BOOL CMetadataCopyDlg::ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectI
 
 }
 
+BOOL CMetadataCopyDlg::ExecuteSQLInTarget(CString &strSQL)
+{
+	if (!g_dbTarget.ExecuteSQL(strSQL))
+		return FALSE;
+	return TRUE;
+}
+
 
 void CMetadataCopyDlg::WriteLog(LPCTSTR lpszLog)
 {
@@ -494,7 +504,7 @@ void CMetadataCopyDlg::WriteLog(LPCTSTR lpszLog)
 	g_output.OutPut(TRUE, lpszLog);
 }
 
-BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem)
+BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem, CString &strUNCPath)
 {
 	objectItem.bFileInTarget = FALSE;
 
@@ -512,13 +522,13 @@ BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem)
 
 	if (!rs.GetFieldValue(_T("FILENAME"), objectItem.strHighFileName))
 		return FALSE;
-	if (!rs.GetFieldValue(_T("PATHID"), objectItem.strPathID))
-		return FALSE;
+	//if (!rs.GetFieldValue(_T("PATHID"), objectItem.strPathID))
+	//	return FALSE;
 	rs.Close();
 
-	CString strUNCPath;
-	if (!m_mapUNCPath.Lookup(objectItem.strPathID, strUNCPath))
-		return FALSE;
+	//CString strUNCPath;
+	//if (!m_mapUNCPath.Lookup(objectItem.strPathID, strUNCPath))
+	//	return FALSE;
 	CString strUNCFileName;
 	strUNCFileName.Format(_T("%s/%s"), strUNCPath, objectItem.strHighFileName);
 	strUNCPath.Replace(_T("//"), _T("/"));
@@ -532,21 +542,59 @@ BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem)
 
 BOOL CMetadataCopyDlg::ReadAllStoragePath()
 {
-	CString strSQL = _T("select pathid,uncpath from spm_storagepath");
+	m_aryStoragePaths.RemoveAll();
+	m_cbTargetPath.ResetContent();
+	CString strSQL = _T("select p.*,sa.name from spm_storagepath p, spm_storagearea sa where p.said=sa.said");
 	CDYRecordSetEx rs(&g_dbTarget);
 	if (!rs.Open(strSQL))
 		return FALSE;
+	CRegister reg;
+	CString strKey = _T("Software\\Wow6432Node\\Dayang\\IMAM");
+	if (!reg.OpenKey(HKEY_LOCAL_MACHINE, strKey)) {
+		CString strErrMsg;
+		strErrMsg.Format(_T("OpenKey[%s] error!"), strKey);
+		g_output.OutPut(TRUE, strErrMsg);
+		AfxMessageBox(strErrMsg);
+		return FALSE;
+	}
+	CString strDefaultPathID = reg.GetString(_T("DefaultPathID"));
+	int nDefaultPathIndex = 0;
 	m_mapUNCPath.RemoveAll();
 	while(!rs.IsEOF()) {
-		CString strPathID, strUNCPath;
-		if (!rs.GetFieldValue(_T("PATHID"), strPathID))
+		STORAGEPATH path;
+		if (!rs.GetFieldValue(_T("PATHID"), path.strPathID))
 			return FALSE;
-		if (!rs.GetFieldValue(_T("UNCPATH"), strUNCPath))
+		if (!rs.GetFieldValue(_T("SAID"), path.strSAID))
 			return FALSE;
-		strUNCPath = _T("D:\\0Project\\纬来\\high");//For test
-		m_mapUNCPath.SetAt(strPathID, strUNCPath);
+		if (!rs.GetFieldValue(_T("UNCPATH"), path.strUNCPath))
+			return FALSE;
+		if (!rs.GetFieldValue(_T("NAME"), path.strStorageAreaName))
+			return FALSE;
+		int nItem = m_cbTargetPath.AddString(path.strStorageAreaName + path.strUNCPath);
+		if (path.strPathID == strDefaultPathID)
+			nDefaultPathIndex = nItem;
+		m_aryStoragePaths.Add(path);
+		g_output.OutPut(_T("%d, %s, %s\n"), nItem, path.strStorageAreaName, path.strUNCPath);
 		rs.MoveNext();
 	}
+	m_cbTargetPath.SetCurSel(nDefaultPathIndex);
 	rs.Close();
 	return TRUE;
+}
+
+BOOL CMetadataCopyDlg::CheckObjectExistInTarget(OBJECTITEM &objectItem)
+{
+	CString strSQL = _T("select count(status) c from spm_file where objectid='%s' and filetype in(0,3,5) and status in(2,3,4,5)");
+	CDYRecordSetEx rs(&g_dbTarget);
+	if (!rs.Open(strSQL))
+		return FALSE;
+	objectItem.bAlreadyExist = FALSE;
+	int nCount = 0;
+	if (!rs.IsEOF())
+		return TRUE;
+	if (!rs.GetFieldValue(_T("c"), &nCount))
+		return FALSE;
+	objectItem.bAlreadyExist = nCount > 0;
+	return TRUE;
+
 }

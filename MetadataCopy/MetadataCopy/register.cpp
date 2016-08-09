@@ -118,7 +118,8 @@ BOOL CRegister::CloseKey()
 
 BOOL CRegister::OpenKey(HKEY hKey, LPCTSTR lpszSubKey)
 {
-	if(RegOpenKeyEx(hKey, lpszSubKey, 0, KEY_ALL_ACCESS, &m_hKey) != ERROR_SUCCESS)
+	LSTATUS status = RegOpenKeyEx(hKey, lpszSubKey, 0, KEY_ALL_ACCESS, &m_hKey);
+	if(status != ERROR_SUCCESS)
 	{
 		m_hKey = 0;
 		return FALSE;

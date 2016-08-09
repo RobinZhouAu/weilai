@@ -5,6 +5,7 @@ typedef struct _OBJECT_ITEM
 	CString strSourceName;
 	CString strTargetName;
 	CString strUserbit;
+	BOOL bAlreadyExist;
 	BOOL bFindInSource;
 	BOOL bFindInTarget;
 	BOOL bFileInTarget;
@@ -12,12 +13,22 @@ typedef struct _OBJECT_ITEM
 	CString strHighFileName;
 	_OBJECT_ITEM()
 	{
+		bAlreadyExist = FALSE;
 		bFindInSource = FALSE;
 		bFindInTarget = FALSE;
 		bFileInTarget = FALSE;
 	}
 }OBJECTITEM;
 typedef CArray<OBJECTITEM, OBJECTITEM&> CObjectItemArray;
+
+typedef struct _STORAGE_PATH
+{
+	CString strPathID;
+	CString strSAID;
+	CString strStorageAreaName;
+	CString strUNCPath;
+}STORAGEPATH;
+typedef CArray<STORAGEPATH, STORAGEPATH&> CStoragePathArray;
 
 // MetadataCopyDlg.h : 头文件
 //
@@ -26,6 +37,9 @@ typedef CArray<OBJECTITEM, OBJECTITEM&> CObjectItemArray;
 #include "afxcmn.h"
 
 #include "DYRecordSetEx.h"
+#include "afxwin.h"
+
+extern BOOL g_bSQLTrace;
 
 
 // CMetadataCopyDlg 对话框
@@ -41,14 +55,16 @@ public:
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 支持
 
-	BOOL CopyBetweenDB(OBJECTITEM objectItem);
+	BOOL CopyBetweenDB(OBJECTITEM &objectItem, STORAGEPATH &path);
 	BOOL CopyChildObjects(CString &strSourceObjectID, CString &strTargetObjectID);
 	BOOL CopyBetweenTable(LPCTSTR lpszTable, LPCTSTR lpszFieldName, CString &strSourceObjectID, CString &strTargetObjectID);
 	BOOL CopyBetweenTableBySQL(CString& strSelectSourceSQL, CString &strSelectTargetSQL, CString &strDeleteTargetSQL, CString &strSourceObjectID, CString &strTargetObjectID);
 	BOOL CopyBetweenRecordSet(CDYRecordSetEx &rsSource, CDYRecordSetEx &rsTarget, int nFieldCount, CString &strSourceObjectID, CString &strTargetObjectID);
+	BOOL ExecuteSQLInTarget(CString &strSQL);
 	
 	BOOL ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectItem);
-	BOOL FindFileInTarget(OBJECTITEM &objectItem);
+	BOOL FindFileInTarget(OBJECTITEM &objectItem, CString &strUNCPath);
+	BOOL CheckObjectExistInTarget(OBJECTITEM &objectItem);
 	BOOL ReadAllStoragePath();
 
 
@@ -77,5 +93,6 @@ public:
 
 	CObjectItemArray m_aryObjectItems;
 	CMapStringToString m_mapUNCPath;
-	//BOOL m_bTestMode;//是否测试模式
+	CComboBox m_cbTargetPath;
+	CStoragePathArray m_aryStoragePaths;
 };

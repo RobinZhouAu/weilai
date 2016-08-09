@@ -54,6 +54,7 @@ CDYDatabaseEx::~CDYDatabaseEx()
 	{
 		m_pDatabase->Close();
 		delete m_pDatabase;
+		m_pDatabase = NULL;
 	}
 }
 void CDYDatabaseEx::SetConnectMode(ConnectModeEnum enumConnectMode)
@@ -111,8 +112,11 @@ BOOL CDYDatabaseEx::Open(CDDBCONNECT &connect)
 {
 	if (m_pDatabase != NULL)
 	{
-		delete m_pDatabase;	//清除以前的数据库连接
+		m_pDatabase->Close();
+		delete m_pDatabase;
+		m_pDatabase = NULL;
 	}
+
 	if (connect.enumType == CDDT_ORACLEHTTP)
 		m_pDatabase = new CCDHttpDatabase;
 	else
@@ -135,6 +139,7 @@ BOOL CDYDatabaseEx::Close()
 	if(!m_pDatabase->Close())
 		return FALSE;
 	deleteC(m_pDatabase);
+	m_pDatabase = NULL;
 	return TRUE;
 }
 void CDYDatabaseEx::SetTimeOut(LONG lTime)
