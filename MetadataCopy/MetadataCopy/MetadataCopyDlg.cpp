@@ -31,7 +31,7 @@ CMetadataCopyDlg::CMetadataCopyDlg(CWnd* pParent /*=NULL*/)
 	, m_strItemCount(_T(""))
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
-	m_strUserbit = _T("3100CE3F");
+	m_strUserbit = _T("41004E01\r\n41004E02\r\n41004E03");
 	//m_bTestMode = FALSE;
 }
 
@@ -132,7 +132,8 @@ BOOL CMetadataCopyDlg::OnInitDialog()
 	m_lstItems.InsertColumn(2, _T("InSource"), LVCFMT_LEFT, 80, TRUE);
 	m_lstItems.InsertColumn(3, _T("Files"), LVCFMT_LEFT, 60, TRUE);
 	m_lstItems.InsertColumn(4, _T("InTarget"), LVCFMT_LEFT, 60, TRUE);
-	m_lstItems.InsertColumn(5, _T("Status"), LVCFMT_LEFT, 60, TRUE);
+	m_lstItems.InsertColumn(5, _T("Archived"), LVCFMT_LEFT, 60, TRUE);
+	m_lstItems.InsertColumn(6, _T("Status"), LVCFMT_LEFT, 60, TRUE);
 
 	m_lstItems.SetExtendedStyle(m_lstItems.GetExtendedStyle() || LVS_EX_GRIDLINES);
 
@@ -221,12 +222,14 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 		m_lstItems.SetItemText(i, 4, strText);
 		if (!CheckObjectExistInTarget(objectItem))
 			return;
+		strText = objectItem.bAlreadyExist ? _T("Y") : _T("NULL");
+		m_lstItems.SetItemText(i, 5, strText);
 
 		if (!objectItem.bFindInSource) {
 			strLog.Format(_T("Can not find [%s] from source db"), objectItem.strUserbit);
 			WriteLog(strLog);
 		}
-		if (!objectItem.bAlreadyExist) {
+		if (objectItem.bAlreadyExist) {
 			strLog.Format(_T("[%s] already copied. Can not copy it again"), objectItem.strUserbit);
 			WriteLog(strLog);
 		}
@@ -237,7 +240,7 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 
 		if (objectItem.bFindInSource && objectItem.bFileInTarget)
 			bEnableCopy = TRUE;
-		if (!objectItem.bFileInTarget)
+		if (!objectItem.bFindInTarget)
 			objectItem.strTargetObjectID = objectItem.strSourceObjectID;
 
 
@@ -270,31 +273,35 @@ void CMetadataCopyDlg::OnBnClickedCopy()
 	CRegister reg;
 	CString strKey = _T("Software\\Wow6432Node\\Dayang\\IMAM");
 	if (!reg.OpenKey(HKEY_LOCAL_MACHINE, strKey)) {
-		CString strErrMsg;
-		strErrMsg.Format(_T("OpenKey[%s] error!"), strKey);
-		g_output.OutPut(TRUE, strErrMsg);
-		AfxMessageBox(strErrMsg);
-		return;
+		if (!reg.CreateKey(HKEY_LOCAL_MACHINE, strKey)) {
+			CString strErrMsg;
+			strErrMsg.Format(_T("OpenKey[%s] error!"), strKey);
+			g_output.OutPut(TRUE, strErrMsg);
+			AfxMessageBox(strErrMsg);
+			return;
+		}
+		reg.OpenKey(HKEY_LOCAL_MACHINE, strKey);
 	}
 	reg.SetString(_T("DefaultPathID"), path.strPathID);
 
 	int nCopyCount = 0;
+	int nStatusCol = 6;
 	for (int i = 0; i < m_aryObjectItems.GetSize(); i ++) {
 		OBJECTITEM &objectItem = m_aryObjectItems[i];
 		if (objectItem.bAlreadyExist){
-			m_lstItems.SetItemText(i, 5, _T("Skipped"));
+			m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
 			continue;
 		}
 			
 		if (!objectItem.bFindInSource || !objectItem.bFileInTarget) {
-			m_lstItems.SetItemText(i, 5, _T("Skipped"));
+			m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
 			continue;
 		}
 		if (!CopyBetweenDB(objectItem, path)) {
 			AfxMessageBox(_T("Copy failed!"));
 			break;
 		}
-		m_lstItems.SetItemText(i, 5, _T("Copied"));
+		m_lstItems.SetItemText(i, nStatusCol, _T("Copied"));
 		nCopyCount ++;
 		CString strLog;
 		strLog.Format(_T("Copy object successfully![%s][%s]"), objectItem.strUserbit, objectItem.strSourceName);
@@ -427,10 +434,10 @@ BOOL CMetadataCopyDlg::ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectI
 {
 	if (!g_dbSource.IsOpen() || !g_dbTarget.IsOpen())
 		return FALSE;
-	CDYRecordSetEx rsSource(&g_dbSource);
-	CDYRecordSetEx rsTarget(&g_dbTarget);
 	CString strSQL;
-	strSQL.Format(_T("select objectid from cob_program where userbit='%s'"), objectItem.strUserbit);
+	strSQL.Format(_T("select OBJECTID from cob_program where userbit='%s'"), objectItem.strUserbit);
+
+	CDYRecordSetEx rsSource(&g_dbSource);
 	if (!rsSource.Open(strSQL)) {
 		return FALSE;
 	}
@@ -441,6 +448,9 @@ BOOL CMetadataCopyDlg::ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectI
 		if (!rsSource.GetFieldValue(_T("OBJECTID"), objectItem.strSourceObjectID))
 			return FALSE;
 	}
+	rsSource.Close();
+
+	CDYRecordSetEx rsTarget(&g_dbTarget);
 	if (!rsTarget.Open(strSQL)) {
 		return FALSE;
 	}
@@ -451,7 +461,6 @@ BOOL CMetadataCopyDlg::ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectI
 		if (!rsTarget.GetFieldValue(_T("OBJECTID"), objectItem.strTargetObjectID))
 			return FALSE;
 	}
-	rsSource.Close();
 	rsTarget.Close();
 
 	strSQL.Format(_T("select * from com_basicinfo where objectid='%s'"), objectItem.strSourceObjectID);
@@ -551,11 +560,14 @@ BOOL CMetadataCopyDlg::ReadAllStoragePath()
 	CRegister reg;
 	CString strKey = _T("Software\\Wow6432Node\\Dayang\\IMAM");
 	if (!reg.OpenKey(HKEY_LOCAL_MACHINE, strKey)) {
-		CString strErrMsg;
-		strErrMsg.Format(_T("OpenKey[%s] error!"), strKey);
-		g_output.OutPut(TRUE, strErrMsg);
-		AfxMessageBox(strErrMsg);
-		return FALSE;
+		if (!reg.CreateKey(HKEY_LOCAL_MACHINE, strKey)) {
+			CString strErrMsg;
+			strErrMsg.Format(_T("OpenKey[%s] error!"), strKey);
+			g_output.OutPut(TRUE, strErrMsg);
+			AfxMessageBox(strErrMsg);
+			return FALSE;
+		}
+		reg.OpenKey(HKEY_LOCAL_MACHINE, strKey);
 	}
 	CString strDefaultPathID = reg.GetString(_T("DefaultPathID"));
 	int nDefaultPathIndex = 0;
@@ -584,14 +596,14 @@ BOOL CMetadataCopyDlg::ReadAllStoragePath()
 
 BOOL CMetadataCopyDlg::CheckObjectExistInTarget(OBJECTITEM &objectItem)
 {
-	CString strSQL = _T("select count(status) c from spm_file where objectid='%s' and filetype in(0,3,5) and status in(2,3,4,5)");
+	CString strSQL = _T("select count(status) c from spm_file where objectid='%s' and filetype in(0,3,5) and status in(3,4,5)");
 	CDYRecordSetEx rs(&g_dbTarget);
 	if (!rs.Open(strSQL))
 		return FALSE;
 	objectItem.bAlreadyExist = FALSE;
 	int nCount = 0;
-	if (!rs.IsEOF())
-		return TRUE;
+	if (rs.IsEOF())
+		return FALSE;
 	if (!rs.GetFieldValue(_T("c"), &nCount))
 		return FALSE;
 	objectItem.bAlreadyExist = nCount > 0;
