@@ -1,25 +1,3 @@
-typedef struct _OBJECT_ITEM
-{
-	CString strSourceObjectID;
-	CString strTargetObjectID;
-	CString strSourceName;
-	CString strTargetName;
-	CString strUserbit;
-	BOOL bAlreadyExist;
-	BOOL bFindInSource;
-	BOOL bFindInTarget;
-	BOOL bFileInTarget;
-	CString strPathID;
-	CString strHighFileName;
-	_OBJECT_ITEM()
-	{
-		bAlreadyExist = FALSE;
-		bFindInSource = FALSE;
-		bFindInTarget = FALSE;
-		bFileInTarget = FALSE;
-	}
-}OBJECTITEM;
-typedef CArray<OBJECTITEM, OBJECTITEM&> CObjectItemArray;
 
 typedef struct _STORAGE_PATH
 {
@@ -36,7 +14,6 @@ typedef CArray<STORAGEPATH, STORAGEPATH&> CStoragePathArray;
 #pragma once
 #include "afxcmn.h"
 
-#include "DYRecordSetEx.h"
 #include "afxwin.h"
 
 extern BOOL g_bSQLTrace;
@@ -67,6 +44,8 @@ public:
 	BOOL CheckObjectExistInTarget(OBJECTITEM &objectItem);
 	BOOL ReadAllStoragePath();
 
+	void FillList();
+
 
 	void WriteLog(LPCTSTR lpszLog);
 // й╣ож
@@ -95,4 +74,6 @@ public:
 	CMapStringToString m_mapUNCPath;
 	CComboBox m_cbTargetPath;
 	CStoragePathArray m_aryStoragePaths;
+	BOOL m_bTestMode;
+	afx_msg void OnBnClickedCompare();
 };

@@ -184,6 +184,7 @@
     <ClInclude Include="CDRecordset.h" />
     <ClInclude Include="ConnectFuc.h" />
     <ClInclude Include="DBCommonStruct.h" />
+    <ClInclude Include="DlgCompare.h" />
     <ClInclude Include="DlgConnect.h" />
     <ClInclude Include="DYDatabaseEx.h" />
     <ClInclude Include="DYHttpClient.h" />
@@ -205,6 +206,7 @@
     <ClCompile Include="cdhttprecordset.cpp" />
     <ClCompile Include="CDRecordset.cpp" />
     <ClCompile Include="ConnectFuc.cpp" />
+    <ClCompile Include="DlgCompare.cpp" />
     <ClCompile Include="DlgConnect.cpp" />
     <ClCompile Include="DYDatabaseEx.cpp" />
     <ClCompile Include="DYHttpClient.cpp" />

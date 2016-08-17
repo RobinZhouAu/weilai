@@ -8,10 +8,8 @@
 #include "afxdialogex.h"
 
 #include "DlgConnect.h"
+#include "DlgCompare.h"
 
-#include "OutPut.h"
-#include "register.h"
-#include "FileShare.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -20,10 +18,6 @@
 
 // CMetadataCopyDlg 对话框
 
-CDYDatabaseEx g_dbSource;
-CDYDatabaseEx g_dbTarget;
-
-COutPut g_output;
 
 CMetadataCopyDlg::CMetadataCopyDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(CMetadataCopyDlg::IDD, pParent)
@@ -32,7 +26,7 @@ CMetadataCopyDlg::CMetadataCopyDlg(CWnd* pParent /*=NULL*/)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	m_strUserbit = _T("41004E01\r\n41004E02\r\n41004E03");
-	//m_bTestMode = FALSE;
+	m_bTestMode = FALSE;
 }
 
 void CMetadataCopyDlg::DoDataExchange(CDataExchange* pDX)
@@ -54,6 +48,7 @@ BEGIN_MESSAGE_MAP(CMetadataCopyDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_COPY, &CMetadataCopyDlg::OnBnClickedCopy)
 	ON_BN_CLICKED(IDC_SEARCH, &CMetadataCopyDlg::OnBnClickedSearch)
 	ON_WM_CLOSE()
+	ON_BN_CLICKED(IDC_COMPARE, &CMetadataCopyDlg::OnBnClickedCompare)
 END_MESSAGE_MAP()
 
 
@@ -120,6 +115,7 @@ BOOL CMetadataCopyDlg::OnInitDialog()
 	g_output.SetLogFile(_T("metadatacopy.log"));
 	g_bSQLTrace = TRUE;
 	GetDlgItem(IDC_SEARCH)->EnableWindow(FALSE);
+	GetDlgItem(IDC_COMPARE)->EnableWindow(FALSE);
 	GetDlgItem(IDC_COPY)->EnableWindow(FALSE);
 	GetDlgItem(IDC_TARGET_PATH)->EnableWindow(FALSE);
 	GetDlgItem(IDC_STATUS)->SetWindowText(_T(""));
@@ -168,6 +164,7 @@ void CMetadataCopyDlg::OnBnClickedConnect()
 
 	ReadAllStoragePath();
 	GetDlgItem(IDC_SEARCH)->EnableWindow(TRUE);
+	GetDlgItem(IDC_COMPARE)->EnableWindow(TRUE);
 	GetDlgItem(IDC_TARGET_PATH)->EnableWindow(TRUE);
 	WriteLog(_T("Connect DB successfully"));
 }
@@ -178,6 +175,10 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 	UpdateData(TRUE);
 
 	int nCurSel = m_cbTargetPath.GetCurSel();
+	if (nCurSel == CB_ERR) {
+		AfxMessageBox(_T("Please select the target path where the high res file are!"));
+		return;
+	}
 	CString strUNCPath = m_aryStoragePaths[nCurSel].strUNCPath;
 	m_strUserbit.Trim();
 	if (m_strUserbit.IsEmpty()) {
@@ -202,63 +203,16 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 		}
 		pch = _tcstok (NULL, _T("\r\n"));
 	}
-
-	BOOL bEnableCopy = FALSE;
-	m_lstItems.DeleteAllItems();
 	for (int i = 0; i < m_aryObjectItems.GetSize(); i ++) {
 		OBJECTITEM &objectItem = m_aryObjectItems[i];
 		if (!ReadObjectFromDB(objectItem.strUserbit, objectItem))
 			return;
 		if (!FindFileInTarget(objectItem, strUNCPath))
 			return;
-		m_lstItems.InsertItem(i, objectItem.strUserbit);
-		CString strName = objectItem.strSourceName.IsEmpty() ? objectItem.strTargetName : objectItem.strSourceName;
-		m_lstItems.SetItemText(i, 1, objectItem.strSourceName);
-		CString strText = objectItem.bFindInSource ? _T("Y") : _T("NULL");
-		m_lstItems.SetItemText(i, 2, strText);
-		strText = objectItem.bFileInTarget ? _T("Y") : _T("NULL");
-		m_lstItems.SetItemText(i, 3, strText);
-		strText = objectItem.bFindInTarget ? _T("Y") : _T("NULL");
-		m_lstItems.SetItemText(i, 4, strText);
 		if (!CheckObjectExistInTarget(objectItem))
 			return;
-		strText = objectItem.bAlreadyExist ? _T("Y") : _T("NULL");
-		m_lstItems.SetItemText(i, 5, strText);
-
-		if (!objectItem.bFindInSource) {
-			strLog.Format(_T("Can not find [%s] from source db"), objectItem.strUserbit);
-			WriteLog(strLog);
-		}
-		if (objectItem.bAlreadyExist) {
-			strLog.Format(_T("[%s] already copied. Can not copy it again"), objectItem.strUserbit);
-			WriteLog(strLog);
-		}
-		if (!objectItem.bFindInTarget) {
-			strLog.Format(_T("Can not find [%s] from target db"), objectItem.strUserbit);
-			WriteLog(strLog);
-		}
-
-		if (objectItem.bFindInSource && objectItem.bFileInTarget)
-			bEnableCopy = TRUE;
-		if (!objectItem.bFindInTarget)
-			objectItem.strTargetObjectID = objectItem.strSourceObjectID;
-
-
-		//if (m_bTestMode) {
-		//	if (objectItem.bFindInSource && !objectItem.bFindInTarget)
-		//		bEnableCopy = TRUE;
-		//	objectItem.strTargetObjectID = objectItem.strSourceObjectID;
-		//	objectItem.strTargetObjectID.Replace(_T("-"), _T(""));
-		//} else {
-		//	if (objectItem.bFindInSource && objectItem.bFindInTarget)
-		//		bEnableCopy = TRUE;
-		//}
 	}
-
-	m_strItemCount.Format(_T("%d"), m_lstItems.GetItemCount());
-	
-	GetDlgItem(IDC_ITEM_COUNT)->SetWindowText(m_strItemCount);
-	GetDlgItem(IDC_COPY)->EnableWindow(bEnableCopy);
+	FillList();
 }
 
 void CMetadataCopyDlg::OnBnClickedCopy()
@@ -327,13 +281,19 @@ BOOL CMetadataCopyDlg::CopyBetweenDB(OBJECTITEM &objectItem, STORAGEPATH &path)
 		return FALSE;
 
 	CString strSQL;
-	strSQL.Format(_T("UPDATE SPM_FILE SET STATUS=%d WHERE OBJECTID='%s'"), 2, objectItem.strTargetObjectID);
+	strSQL.Format(_T("UPDATE COM_BASICINFO SET FILESTATUS=%d,NEEDREPAIR=0 WHERE OBJECTID='%s'"), XC_FS_ONLINE/*在线*/, objectItem.strTargetObjectID);
 	if (!ExecuteSQLInTarget(strSQL))
 		return FALSE;
+
+	strSQL.Format(_T("UPDATE SPM_FILE SET STATUS=%d WHERE OBJECTID='%s'"), FSS_ONLINE/*在线*/, objectItem.strTargetObjectID);
+	if (!ExecuteSQLInTarget(strSQL))
+		return FALSE;
+	
 	strSQL.Format(_T("UPDATE SPM_FILE SET PATHID='%s',SAID='%s' WHERE OBJECTID='%s' AND FILETYPE IN(0,3,5)"),
 		path.strPathID, path.strSAID, objectItem.strTargetObjectID);
 	if (!ExecuteSQLInTarget(strSQL))
 		return FALSE;
+	
 	return TRUE;
 }
 
@@ -596,7 +556,8 @@ BOOL CMetadataCopyDlg::ReadAllStoragePath()
 
 BOOL CMetadataCopyDlg::CheckObjectExistInTarget(OBJECTITEM &objectItem)
 {
-	CString strSQL = _T("select count(status) c from spm_file where objectid='%s' and filetype in(0,3,5) and status in(3,4,5)");
+	CString strSQL;
+	strSQL.Format(_T("select count(status) c from spm_file where objectid='%s' and filetype in(0,3,5) and status in(3,4,5)"), objectItem.strTargetObjectID);
 	CDYRecordSetEx rs(&g_dbTarget);
 	if (!rs.Open(strSQL))
 		return FALSE;
@@ -609,4 +570,81 @@ BOOL CMetadataCopyDlg::CheckObjectExistInTarget(OBJECTITEM &objectItem)
 	objectItem.bAlreadyExist = nCount > 0;
 	return TRUE;
 
+}
+
+void CMetadataCopyDlg::FillList()
+{
+	BOOL bEnableCopy = FALSE;
+	m_lstItems.DeleteAllItems();
+	CString strLog;
+	for (int i = 0; i < m_aryObjectItems.GetSize(); i ++) {
+		OBJECTITEM &objectItem = m_aryObjectItems[i];
+		m_lstItems.InsertItem(i, objectItem.strUserbit);
+		CString strName = objectItem.strSourceName.IsEmpty() ? objectItem.strTargetName : objectItem.strSourceName;
+		m_lstItems.SetItemText(i, 1, objectItem.strSourceName);
+		CString strText = objectItem.bFindInSource ? _T("Y") : _T("NULL");
+		m_lstItems.SetItemText(i, 2, strText);
+		strText = objectItem.bFileInTarget ? _T("Y") : _T("NULL");
+		m_lstItems.SetItemText(i, 3, strText);
+		strText = objectItem.bFindInTarget ? _T("Y") : _T("NULL");
+		m_lstItems.SetItemText(i, 4, strText);
+		strText = objectItem.bAlreadyExist ? _T("Y") : _T("NULL");
+		m_lstItems.SetItemText(i, 5, strText);
+
+		if (!objectItem.bFindInSource) {
+			strLog.Format(_T("Can not find [%s] from source db"), objectItem.strUserbit);
+			WriteLog(strLog);
+		}
+		if (objectItem.bAlreadyExist) {
+			strLog.Format(_T("[%s] already copied. Can not copy it again"), objectItem.strUserbit);
+			WriteLog(strLog);
+		}
+		if (!objectItem.bFindInTarget) {
+			strLog.Format(_T("Can not find [%s] from target db"), objectItem.strUserbit);
+			WriteLog(strLog);
+		}
+
+		if (objectItem.bFindInSource && objectItem.bFileInTarget)
+			bEnableCopy = TRUE;
+		if (!objectItem.bFindInTarget) 
+			objectItem.strTargetObjectID = objectItem.strSourceObjectID;
+
+
+		if (m_bTestMode) {
+			if (objectItem.bFindInSource && !objectItem.bFindInTarget) {
+				objectItem.strTargetObjectID = objectItem.strSourceObjectID;
+				objectItem.strTargetObjectID.Replace(_T("-"), _T(""));
+			}
+		}
+	}
+
+	m_strItemCount.Format(_T("%d"), m_lstItems.GetItemCount());
+
+	GetDlgItem(IDC_ITEM_COUNT)->SetWindowText(m_strItemCount);
+	GetDlgItem(IDC_COPY)->EnableWindow(bEnableCopy);
+}
+
+void CMetadataCopyDlg::OnBnClickedCompare()
+{
+	int nCurSel = m_cbTargetPath.GetCurSel();
+	if (nCurSel == CB_ERR) {
+		AfxMessageBox(_T("Please select the target path where the high res file are!"));
+		return;
+	}
+	CString strUNCPath = m_aryStoragePaths[nCurSel].strUNCPath;
+
+	CDlgCompare dlg;
+	if (dlg.DoModal() != IDOK)
+		return;
+	m_aryObjectItems.RemoveAll();
+	for (int i = 0; i < dlg.m_arySelectedItems.GetSize(); i ++) {
+		OBJECTITEM &objectItem = dlg.m_aryObjectItems[dlg.m_arySelectedItems[i]];
+		if (!FindFileInTarget(objectItem, strUNCPath))
+			return;
+		if (!CheckObjectExistInTarget(objectItem))
+			return;
+
+		m_aryObjectItems.Add(objectItem);
+	}
+	FillList();
 }

@@ -10,6 +10,10 @@
 #define new DEBUG_NEW
 #endif
 
+CDYDatabaseEx g_dbSource;
+CDYDatabaseEx g_dbTarget;
+
+COutPut g_output;
 
 // CMetadataCopyApp
 

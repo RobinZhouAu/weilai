@@ -84,6 +84,9 @@
     <ClInclude Include="FileShare.h">
       <Filter>include</Filter>
     </ClInclude>
+    <ClInclude Include="DlgCompare.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MetadataCopy.cpp">
@@ -136,6 +139,9 @@
     </ClCompile>
     <ClCompile Include="FileShare.cpp">
       <Filter>include</Filter>
+    </ClCompile>
+    <ClCompile Include="DlgCompare.cpp">
+      <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
