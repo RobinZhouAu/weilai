@@ -64,14 +64,20 @@ typedef struct _OBJECT_ITEM
 	BOOL bFileInTarget;
 	CString strPathID;
 	CString strHighFileName;
-	int nCatalogStatus;
+	int nSourceCatalogStatus;
+	int nTargetCatalogStatus;
+	int nTargetFileStatus;
+	int nTargetNeedRepair;
 	_OBJECT_ITEM()
 	{
 		bAlreadyExist = FALSE;
 		bFindInSource = FALSE;
 		bFindInTarget = FALSE;
 		bFileInTarget = FALSE;
-		nCatalogStatus = 0;
+		nSourceCatalogStatus = 0;
+		nTargetCatalogStatus = 0;
+		nTargetFileStatus = 0;
+		nTargetNeedRepair = 0;
 	}
 }OBJECTITEM;
 typedef CArray<OBJECTITEM, OBJECTITEM&> CObjectItemArray;

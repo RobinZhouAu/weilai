@@ -27,6 +27,7 @@ CMetadataCopyDlg::CMetadataCopyDlg(CWnd* pParent /*=NULL*/)
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	m_strUserbit = _T("41004E01\r\n41004E02\r\n41004E03");
 	m_bTestMode = FALSE;
+	m_bCopyFromCompare = FALSE;
 }
 
 void CMetadataCopyDlg::DoDataExchange(CDataExchange* pDX)
@@ -213,6 +214,7 @@ void CMetadataCopyDlg::OnBnClickedSearch()
 			return;
 	}
 	FillList();
+	m_bCopyFromCompare = FALSE;
 }
 
 void CMetadataCopyDlg::OnBnClickedCopy()
@@ -242,14 +244,18 @@ void CMetadataCopyDlg::OnBnClickedCopy()
 	int nStatusCol = 6;
 	for (int i = 0; i < m_aryObjectItems.GetSize(); i ++) {
 		OBJECTITEM &objectItem = m_aryObjectItems[i];
-		if (objectItem.bAlreadyExist){
-			m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
-			continue;
-		}
-			
-		if (!objectItem.bFindInSource || !objectItem.bFileInTarget) {
-			m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
-			continue;
+		if (m_bCopyFromCompare) {
+
+		} else {
+			if (objectItem.bAlreadyExist){
+				m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
+				continue;
+			}
+
+			if (!objectItem.bFindInSource || !objectItem.bFileInTarget) {
+				m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
+				continue;
+			}
 		}
 		if (!CopyBetweenDB(objectItem, path)) {
 			AfxMessageBox(_T("Copy failed!"));
@@ -273,26 +279,52 @@ BOOL CMetadataCopyDlg::CopyBetweenDB(OBJECTITEM &objectItem, STORAGEPATH &path)
 		return FALSE;
 	if (!CopyBetweenTable(_T("COB_PROGRAM"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
 		return FALSE;
-	if (!CopyBetweenTable(_T("SPM_FILE"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
-		return FALSE;
+	if (!m_bCopyFromCompare) {
+		if (!CopyBetweenTable(_T("SPM_FILE"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
+			return FALSE;
+	}
 	if (!CopyBetweenTable(_T("COM_KEYFRAME"), _T("CLIPID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
 		return FALSE;
 	if (!CopyBetweenTable(_T("COM_SPECIALSEQUENCE"), _T("OBJECTID"), objectItem.strSourceObjectID, objectItem.strTargetObjectID))
 		return FALSE;
 
-	CString strSQL;
-	strSQL.Format(_T("UPDATE COM_BASICINFO SET FILESTATUS=%d,NEEDREPAIR=0 WHERE OBJECTID='%s'"), XC_FS_ONLINE/*在线*/, objectItem.strTargetObjectID);
-	if (!ExecuteSQLInTarget(strSQL))
+	
+	if (!CopyChildObjects(objectItem.strSourceObjectID, objectItem.strTargetObjectID))
 		return FALSE;
 
-	strSQL.Format(_T("UPDATE SPM_FILE SET STATUS=%d WHERE OBJECTID='%s'"), FSS_ONLINE/*在线*/, objectItem.strTargetObjectID);
-	if (!ExecuteSQLInTarget(strSQL))
-		return FALSE;
+
+	CString strSQL;
+	if (m_bCopyFromCompare) {
+		strSQL.Format(_T("UPDATE COM_BASICINFO SET FILESTATUS=%d,NEEDREPAIR=%d WHERE OBJECTID='%s'"), objectItem.nTargetFileStatus, objectItem.nTargetNeedRepair);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+	} else {
+		strSQL.Format(_T("UPDATE COM_BASICINFO SET FILESTATUS=%d,NEEDREPAIR=0 WHERE OBJECTID='%s'"), XC_FS_ONLINE/*在线*/, objectItem.strTargetObjectID);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+
+		strSQL.Format(_T("UPDATE SPM_FILE SET STATUS=%d WHERE OBJECTID='%s'"), FSS_ONLINE/*在线*/, objectItem.strTargetObjectID);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+
+		strSQL.Format(_T("UPDATE SPM_FILE SET PATHID='%s',SAID='%s' WHERE OBJECTID='%s' AND FILETYPE IN(0,3,5)"),
+			path.strPathID, path.strSAID, objectItem.strTargetObjectID);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+
+	}
+	if (objectItem.nSourceCatalogStatus == XC_CS_END || objectItem.nSourceCatalogStatus == XC_AUDIT_END) {
+		strSQL.Format(_T("UPDATE TSK_CATALOG SET STATUS=%d WHERE OBJECTID='%s'"), 100, objectItem.strTargetObjectID);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+		strSQL.Format(_T("UPDATE TSK_INGEST SET STATUS=%d WHERE OBJECTID='%s'"), 100, objectItem.strTargetObjectID);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+		strSQL.Format(_T("UPDATE TSK_IMPORT SET STATUS=%d WHERE OBJECTID='%s'"), 100, objectItem.strTargetObjectID);
+		if (!ExecuteSQLInTarget(strSQL))
+			return FALSE;
+	}
 	
-	strSQL.Format(_T("UPDATE SPM_FILE SET PATHID='%s',SAID='%s' WHERE OBJECTID='%s' AND FILETYPE IN(0,3,5)"),
-		path.strPathID, path.strSAID, objectItem.strTargetObjectID);
-	if (!ExecuteSQLInTarget(strSQL))
-		return FALSE;
 	
 	return TRUE;
 }
@@ -433,6 +465,8 @@ BOOL CMetadataCopyDlg::ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectI
 		} else {
 			if (!rsSource.GetFieldValue(_T("NAME"), objectItem.strSourceName))
 				return FALSE;
+			if (!rsSource.GetFieldValue(_T("CATSTATUS"), &objectItem.nSourceCatalogStatus))
+				return FALSE;
 		}
 		rsSource.Close();
 	}
@@ -445,6 +479,8 @@ BOOL CMetadataCopyDlg::ReadObjectFromDB(CString &strUserbit, OBJECTITEM &objectI
 			objectItem.bFindInTarget = FALSE;	
 		} else {
 			if (!rsTarget.GetFieldValue(_T("NAME"), objectItem.strTargetName))
+				return FALSE;
+			if (!rsTarget.GetFieldValue(_T("CATSTATUS"), &objectItem.nTargetCatalogStatus))
 				return FALSE;
 		}
 		rsTarget.Close();
@@ -591,21 +627,26 @@ void CMetadataCopyDlg::FillList()
 		strText = objectItem.bAlreadyExist ? _T("Y") : _T("NULL");
 		m_lstItems.SetItemText(i, 5, strText);
 
-		if (!objectItem.bFindInSource) {
-			strLog.Format(_T("Can not find [%s] from source db"), objectItem.strUserbit);
-			WriteLog(strLog);
-		}
-		if (objectItem.bAlreadyExist) {
-			strLog.Format(_T("[%s] already copied. Can not copy it again"), objectItem.strUserbit);
-			WriteLog(strLog);
-		}
-		if (!objectItem.bFindInTarget) {
-			strLog.Format(_T("Can not find [%s] from target db"), objectItem.strUserbit);
-			WriteLog(strLog);
+		if (m_bCopyFromCompare) {
+			bEnableCopy = TRUE;
+
+		} else {
+			if (!objectItem.bFindInSource) {
+				strLog.Format(_T("Can not find [%s] from source db"), objectItem.strUserbit);
+				WriteLog(strLog);
+			}
+			if (objectItem.bAlreadyExist) {
+				strLog.Format(_T("[%s] already copied. Can not copy it again"), objectItem.strUserbit);
+				WriteLog(strLog);
+			}
+			if (!objectItem.bFindInTarget) {
+				strLog.Format(_T("Can not find [%s] from target db"), objectItem.strUserbit);
+				WriteLog(strLog);
+			}
+			if (objectItem.bFindInSource && objectItem.bFileInTarget)
+				bEnableCopy = TRUE;
 		}
 
-		if (objectItem.bFindInSource && objectItem.bFileInTarget)
-			bEnableCopy = TRUE;
 		if (!objectItem.bFindInTarget) 
 			objectItem.strTargetObjectID = objectItem.strSourceObjectID;
 
@@ -646,5 +687,6 @@ void CMetadataCopyDlg::OnBnClickedCompare()
 
 		m_aryObjectItems.Add(objectItem);
 	}
+	m_bCopyFromCompare = TRUE;
 	FillList();
 }

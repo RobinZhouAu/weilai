@@ -76,4 +76,5 @@ public:
 	CStoragePathArray m_aryStoragePaths;
 	BOOL m_bTestMode;
 	afx_msg void OnBnClickedCompare();
+	BOOL m_bCopyFromCompare;
 };
