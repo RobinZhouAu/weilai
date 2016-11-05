@@ -68,6 +68,9 @@ typedef struct _OBJECT_ITEM
 	int nTargetCatalogStatus;
 	int nTargetFileStatus;
 	int nTargetNeedRepair;
+	double dFileSizeInDB;
+	ULONGLONG ullFileSizeInDisk;
+	BOOL bFileInDiskBroken;
 	_OBJECT_ITEM()
 	{
 		bAlreadyExist = FALSE;
@@ -78,6 +81,9 @@ typedef struct _OBJECT_ITEM
 		nTargetCatalogStatus = 0;
 		nTargetFileStatus = 0;
 		nTargetNeedRepair = 0;
+		dFileSizeInDB = 0;
+		ullFileSizeInDisk = 0;
+		bFileInDiskBroken = FALSE;
 	}
 }OBJECTITEM;
 typedef CArray<OBJECTITEM, OBJECTITEM&> CObjectItemArray;

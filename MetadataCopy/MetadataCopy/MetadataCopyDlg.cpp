@@ -256,6 +256,10 @@ void CMetadataCopyDlg::OnBnClickedCopy()
 				m_lstItems.SetItemText(i, nStatusCol, _T("Skipped"));
 				continue;
 			}
+			if (objectItem.bFileInDiskBroken) {
+				m_lstItems.SetItemText(i, nStatusCol, _T("File broken"));
+				continue;
+			}
 		}
 		if (!CopyBetweenDB(objectItem, path)) {
 			AfxMessageBox(_T("Copy failed!"));
@@ -514,7 +518,7 @@ BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem, CString &strUNCP
 	objectItem.bFileInTarget = FALSE;
 
 	CString strSQL;
-	strSQL.Format(_T("select filename,pathid from spm_file where objectid='%s' and filetype in(0,3,5)"), objectItem.strSourceObjectID);
+	strSQL.Format(_T("select filename,pathid,filesize from spm_file where objectid='%s' and filetype in(0,3,5)"), objectItem.strSourceObjectID);
 	CDYRecordSetEx rs(&g_dbSource);
 	if (!rs.Open(strSQL))
 		return FALSE;
@@ -527,8 +531,8 @@ BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem, CString &strUNCP
 
 	if (!rs.GetFieldValue(_T("FILENAME"), objectItem.strHighFileName))
 		return FALSE;
-	//if (!rs.GetFieldValue(_T("PATHID"), objectItem.strPathID))
-	//	return FALSE;
+	if (!rs.GetFieldValue(_T("FILESIZE"), &objectItem.dFileSizeInDB))
+		return FALSE;
 	rs.Close();
 
 	//CString strUNCPath;
@@ -539,8 +543,15 @@ BOOL CMetadataCopyDlg::FindFileInTarget(OBJECTITEM &objectItem, CString &strUNCP
 	strUNCPath.Replace(_T("//"), _T("/"));
 	g_output.OutPut(TRUE, strUNCFileName);
 	ULONGLONG ullFileSize = g_GetFileSize(strUNCFileName);
-	if (ullFileSize > 0)
+	objectItem.ullFileSizeInDisk = ullFileSize;
+	g_output.OutPut(TRUE, _T("Filesize in db=%.0f, Filesize in disk=%ld"), objectItem.dFileSizeInDB, objectItem.ullFileSizeInDisk);
+	if (ullFileSize > 0) {
 		objectItem.bFileInTarget = TRUE;
+		if (objectItem.ullFileSizeInDisk < objectItem.dFileSizeInDB) {
+			objectItem.bFileInDiskBroken = TRUE;
+			g_output.OutPut(TRUE, _T("File[%s] is broken"), strUNCFileName);
+		}
+	}
 		
 	return TRUE;
 }
@@ -643,7 +654,7 @@ void CMetadataCopyDlg::FillList()
 				strLog.Format(_T("Can not find [%s] from target db"), objectItem.strUserbit);
 				WriteLog(strLog);
 			}
-			if (objectItem.bFindInSource && objectItem.bFileInTarget)
+			if (objectItem.bFindInSource && objectItem.bFileInTarget && !objectItem.bFileInDiskBroken)
 				bEnableCopy = TRUE;
 		}
 
